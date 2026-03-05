@@ -1,38 +1,29 @@
 ---
 name: Bug report
-about: Create a report to help us improve
+about: Report a bug or crash encountered in the system
 title: ''
 labels: ''
 assignees: ''
 
 ---
 
-**Describe the bug**
-A clear and concise description of what the bug is.
+##  Bug Description
+Describe the bug clearly and concisely. What went wrong?
 
-**To Reproduce**
-Steps to reproduce the behavior:
+##  Steps to Reproduce
+What steps are needed to reproduce the bug?
 1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
+2. Run the command: '...'
+3. Enter the input: '...'
+4. Error observed: '...'
 
-**Expected behavior**
-A clear and concise description of what you expected to happen.
+##  Expected Behavior
+Describe how the system should work or what output it should give under normal conditions.
 
-**Screenshots**
-If applicable, add screenshots to help explain your problem.
+##  System and Environment Info
+- Operating System (OS): [e.g., Windows 11, Ubuntu 22.04]
+- Python Version: [e.g., Python 3.12+]
+- Related Library: [e.g., python-nmap, asyncio, aiohttp]
 
-**Desktop (please complete the following information):**
- - OS: [e.g. iOS]
- - Browser [e.g. chrome, safari]
- - Version [e.g. 22]
-
-**Smartphone (please complete the following information):**
- - Device: [e.g. iPhone6]
- - OS: [e.g. iOS8.1]
- - Browser [e.g. stock browser, safari]
- - Version [e.g. 22]
-
-**Additional context**
-Add any other context about the problem here.
+##  Screenshots or Log Outputs
+Add the Traceback error from the terminal or a screenshot of the Streamlit dashboard here, if applicable.
