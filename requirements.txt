@@ -1,8 +1,19 @@
+This project uses several Python libraries to build the vulnerability scanning system.
+
 python-nmap
+Used to perform network scanning by interfacing with Nmap. It allows the system to detect open ports and identify active services on the target machine.
+
 aiohttp
+An asynchronous HTTP client used to send requests to external APIs such as the NVD (National Vulnerability Database). It helps the system handle multiple API requests efficiently.
+
 pandas
+Used for structuring and processing vulnerability data. It helps organize CVE results and makes it easier to analyze and prepare data for visualization.
+
 streamlit
+A lightweight web framework used to build the interactive dashboard. It allows the team to display scan results, CVSS scores, and risk levels in a clear visual format.
+
 pytest
+Used for unit testing the core components of the system such as the scanning logic and API integrations. This ensures reliability and helps detect bugs early.
+
 sqlalchemy
-requests
-python-dotenv
+A database toolkit used to store scan results and vulnerability data locally. It provides an organized way to manage and query stored information.
