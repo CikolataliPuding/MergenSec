@@ -1,0 +1,8 @@
+python-nmap
+aiohttp
+pandas
+streamlit
+pytest
+sqlalchemy
+requests
+python-dotenv
