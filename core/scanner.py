@@ -40,7 +40,7 @@ class AsyncScanner:
             if not hosts:
                 return {
                     "host": self.target,
-                    "scan_time": datetime.utcnow().isoformat(),
+                    "scan_time": datetime.now(datetime.UTC).isoformat(),
                     "ports": [],
                 }
 
@@ -49,7 +49,7 @@ class AsyncScanner:
 
             return {
                 "host": host,
-                "scan_time": datetime.utcnow().isoformat(),
+                "scan_time": datetime.now(datetime.UTC).isoformat(),
                 "ports": ports,
             }
 
