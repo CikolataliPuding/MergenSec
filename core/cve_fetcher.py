@@ -8,14 +8,11 @@ from dotenv import load_dotenv
 
 import aiohttp
 
-pythonNVD_BASE_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+NVD_BASE_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 RATE_LIMIT_SLEEP = 0.6
 RETRY_SLEEP = 2.0
 MAX_RETRIES = 1
 RESULTS_PER_PAGE = 20
-
-# Backward-compatible alias for existing imports.
-NVD_BASE_URL = pythonNVD_BASE_URL
 
 
 class CVEFetcher:
@@ -25,7 +22,7 @@ class CVEFetcher:
         """Initialize fetcher with an API key provided by caller."""
         self._api_key = api_key.strip()
         if not self._api_key:
-            raise RuntimeError("NVD_API_KEY is missing in environment variables.")
+            raise RuntimeError("NVD_API_KEY is missing or empty.")
 
     async def fetch_cves(self, service: str, version: str) -> list[dict[str, Any]]:
         """Fetch CVEs for the given service and version."""
@@ -38,7 +35,7 @@ class CVEFetcher:
                 await asyncio.sleep(RATE_LIMIT_SLEEP)
                 try:
                     async with session.get(
-                        pythonNVD_BASE_URL,
+                        NVD_BASE_URL,
                         headers=headers,
                         params=params,
                     ) as response:
@@ -81,7 +78,8 @@ class CVEFetcher:
 
         return []
 
-    def _build_params(self, service: str, version: str) -> dict[str, str | int]:
+    @staticmethod
+    def _build_params(service: str, version: str) -> dict[str, str | int]:
         """Build request query parameters for NVD CVE search."""
         return {
             "keywordSearch": f"{service.strip()} {version.strip()}",
@@ -89,7 +87,8 @@ class CVEFetcher:
             "startIndex": 0,
         }
 
-    def _parse_response(self, raw: dict[str, Any]) -> list[dict[str, Any]]:
+    @staticmethod
+    def _parse_response(raw: dict[str, Any]) -> list[dict[str, Any]]:
         """Validate and transform raw NVD API data into CVE records."""
         vulnerabilities = raw.get("vulnerabilities", [])
         if not isinstance(vulnerabilities, list):
@@ -108,10 +107,10 @@ class CVEFetcher:
             if not isinstance(cve_id, str) or not cve_id.strip():
                 continue
 
-            description = self._extract_description(cve_data)
+            description = CVEFetcher._extract_description(None, cve_data)
             metrics = cve_data.get("metrics", {})
             metrics = metrics if isinstance(metrics, dict) else {}
-            cvss_score, severity = self._extract_cvss(metrics)
+            cvss_score, severity = CVEFetcher._extract_cvss(None, metrics)
 
             published = cve_data.get("published")
             published_value = published if isinstance(published, str) else None
@@ -174,17 +173,6 @@ class CVEFetcher:
             return score, severity
 
         return None, "UNKNOWN"
-
-
-def build_params(service: str, version: str) -> dict[str, str | int]:
-    """Backward-compatible wrapper around class parameter builder."""
-    return CVEFetcher(api_key="placeholder")._build_params(service, version)
-
-
-def parse_response(raw: dict[str, Any]) -> list[dict[str, Any]]:
-    """Backward-compatible wrapper around class response parser."""
-    return CVEFetcher(api_key="placeholder")._parse_response(raw)
-
 
 async def fetch_cves(service: str, version: str) -> list[dict[str, Any]]:
     """Backward-compatible public API for fetching CVEs."""
