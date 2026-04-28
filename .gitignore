@@ -1,3 +1,20 @@
 
 venv/
 .env
+# Generated reports
+reports/*.json
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Database
+*.db
+
+# Pytest cache
+.pytest_cache/
+
+# Coverage
+.coverage
+htmlcov/
