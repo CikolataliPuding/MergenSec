@@ -1,608 +1,739 @@
-"""Streamlit dashboard for MergenSec vulnerability mapping framework."""
+"""
+Streamlit Dashboard for MergenSec — Vulnerability Mapping Framework
 
+SPRINT 1 (Days 2): Basic dashboard with 'Hello World' ✅
+SPRINT 3 (Days 11-17): Full UI with forms, charts, and tables ✅
+SPRINT 4 (Days 18+): Integration, error handling, and finalization ✅
+
+COMPLETED:
+- Real module integration with core.scanner.AsyncScanner
+- Real CVE fetching with core.cve_fetcher.fetch_cves
+- Automatic report saving to reports/ directory
+- Scan history tracking and management
+- Full error handling with detailed messages
+
+Author: Mustafa Bite
+"""
+
+import asyncio
 import json
 import os
 import time
+import ipaddress
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+from dotenv import load_dotenv
 
-# Add parent directory to path for imports
+# Import core modules
 import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from core.vuln_mapper import map_vulnerability, classify_risk
+from core.scanner import AsyncScanner
+from core.cve_fetcher import fetch_cves
 
-# Page configuration
+# Load environment variables
+load_dotenv()
+
+# Page configuration (SPRINT 1)
 st.set_page_config(
-    page_title="MergenSec - Vulnerability Mapping",
+    page_title="🏹 MergenSec - Vulnerability Dashboard",
     page_icon="🏹",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for styling
+# Custom CSS Styling
 st.markdown("""
 <style>
+    /* Main header styling */
     .main-header {
         font-size: 2.5rem;
         font-weight: bold;
-        color: #1f77b4;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
         margin-bottom: 1rem;
     }
+    
+    /* Metric card styling */
     .metric-card {
-        background-color: #f0f2f6;
-        border-radius: 10px;
-        padding: 15px;
-        text-align: center;
+        background: linear-gradient(135deg, #f0f2f6 0%, #e9ecef 100%);
+        border-left: 4px solid #667eea;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
+    
+    /* Risk severity colors */
     .risk-critical {
         color: #dc2626;
         font-weight: bold;
+        font-size: 1.1rem;
     }
     .risk-high {
         color: #ea580c;
         font-weight: bold;
+        font-size: 1.1rem;
     }
     .risk-medium {
         color: #ca8a04;
         font-weight: bold;
+        font-size: 1.1rem;
     }
     .risk-low {
         color: #16a34a;
         font-weight: bold;
+        font-size: 1.1rem;
     }
+    
+    /* Table styling */
+    .dataframe {
+        font-size: 0.9rem;
+    }
+    
+    /* Alert styling */
     .stAlert {
-        padding: 10px;
+        border-radius: 8px;
     }
 </style>
 """, unsafe_allow_html=True)
 
 
-def load_sample_data() -> list[dict[str, Any]]:
-    """Load sample vulnerability data for demonstration."""
-    return [
-        {
-            "port": 80,
-            "service": "http",
-            "cve": "CVE-2021-41773",
-            "description": "Apache Path Traversal",
-            "cvss": 7.5,
-            "risk": "HIGH"
-        },
-        {
-            "port": 22,
-            "service": "ssh",
-            "cve": "CVE-2018-15473",
-            "description": "OpenSSH User Enumeration",
-            "cvss": 5.3,
-            "risk": "MEDIUM"
-        },
-        {
-            "port": 21,
-            "service": "ftp",
-            "cve": "CVE-2015-3306",
-            "description": "ProFTPd Remote Code Execution",
-            "cvss": 9.8,
-            "risk": "HIGH"
-        },
-        {
-            "port": 443,
-            "service": "https",
-            "cve": "CVE-2022-3602",
-            "description": "OpenSSL Buffer Overflow",
-            "cvss": 9.8,
-            "risk": "HIGH"
-        },
-        {
-            "port": 3306,
-            "service": "mysql",
-            "cve": "CVE-2016-6662",
-            "description": "MySQL Remote Code Execution",
-            "cvss": 9.8,
-            "risk": "HIGH"
-        },
-        {
-            "port": 8080,
-            "service": "http-proxy",
-            "cve": "CVE-2020-1147",
-            "description": "Liferay Portal RCE",
-            "cvss": 7.3,
-            "risk": "HIGH"
-        },
-        {
-            "port": 25,
-            "service": "smtp",
-            "cve": "CVE-2018-19433",
-            "description": "Exim Mail Server RCE",
-            "cvss": 8.0,
-            "risk": "HIGH"
-        },
-        {
-            "port": 53,
-            "service": "dns",
-            "cve": "CVE-2020-1350",
-            "description": "Windows DNS Server RCE",
-            "cvss": 8.8,
-            "risk": "HIGH"
-        }
-    ]
+# ============================================================================
+# INITIALIZATION & SESSION STATE MANAGEMENT (SPRINT 1 & 3)
+# ============================================================================
+
+def initialize_session_state():
+    """Initialize Streamlit session state variables."""
+    if "scan_results" not in st.session_state:
+        st.session_state.scan_results = None
+    if "cve_data" not in st.session_state:
+        st.session_state.cve_data = None
+    if "vulnerability_map" not in st.session_state:
+        st.session_state.vulnerability_map = None
+    if "scan_timestamp" not in st.session_state:
+        st.session_state.scan_timestamp = None
+    if "is_scanning" not in st.session_state:
+        st.session_state.is_scanning = False
+    if "scan_history" not in st.session_state:
+        st.session_state.scan_history = []
+    if "port_range" not in st.session_state:
+        st.session_state.port_range = "1-1000"
+    if "scan_type" not in st.session_state:
+        st.session_state.scan_type = "Standard"
 
 
-def simulate_scan(target: str, ports: list[int]) -> list[dict[str, Any]]:
-    """Simulate a network scan and return vulnerability results."""
-    results = []
-    
-    for port in ports:
-        # Simulate scan delay
-        time.sleep(0.1)
-        
-        vuln = map_vulnerability(port)
-        if vuln:
-            results.append(vuln)
-    
-    return results
+# ============================================================================
+# UTILITY FUNCTIONS (SPRINT 3)
+# ============================================================================
+
+def is_valid_target(target: str) -> bool:
+    """Validate IP address or CIDR range."""
+    try:
+        if "/" in target:
+            ipaddress.ip_network(target, strict=False)
+        else:
+            ipaddress.ip_address(target)
+        return True
+    except ValueError:
+        return False
 
 
-def display_metrics(results: list[dict[str, Any]]) -> None:
-    """Display key metrics in cards."""
-    if not results:
-        st.info("No vulnerabilities found.")
-        return
-    
-    # Calculate metrics
-    total_vulns = len(results)
-    critical_count = sum(1 for r in results if r["cvss"] >= 9.0)
-    high_count = sum(1 for r in results if 7.0 <= r["cvss"] < 9.0)
-    medium_count = sum(1 for r in results if 4.0 <= r["cvss"] < 7.0)
-    low_count = sum(1 for r in results if r["cvss"] < 4.0)
-    
-    avg_cvss = sum(r["cvss"] for r in results) / total_vulns if results else 0
-    
-    # Display metrics in columns
-    col1, col2, col3, col4, col5 = st.columns(5)
-    
-    with col1:
-        st.metric(
-            label="Total Vulnerabilities",
-            value=total_vulns,
-            delta=None
-        )
-    
-    with col2:
-        st.metric(
-            label="Critical",
-            value=critical_count,
-            delta_color="inverse" if critical_count > 0 else "normal"
-        )
-    
-    with col3:
-        st.metric(
-            label="High",
-            value=high_count,
-            delta_color="inverse" if high_count > 0 else "normal"
-        )
-    
-    with col4:
-        st.metric(
-            label="Medium",
-            value=medium_count,
-        )
-    
-    with col5:
-        st.metric(
-            label="Avg. CVSS",
-            value=f"{avg_cvss:.1f}",
-            delta=f"Risk Score"
-        )
+def classify_risk(cvss_score: float) -> str:
+    """Classify vulnerability severity based on CVSS score."""
+    if cvss_score >= 9.0:
+        return "CRITICAL"
+    elif cvss_score >= 7.0:
+        return "HIGH"
+    elif cvss_score >= 4.0:
+        return "MEDIUM"
+    else:
+        return "LOW"
 
 
-def display_risk_distribution(results: list[dict[str, Any]], key: str = "default") -> None:
-    """Display risk distribution chart."""
-    if not results:
-        return
-    
-    # Count by risk level
-    risk_counts = {
-        "Critical": sum(1 for r in results if r["cvss"] >= 9.0),
-        "High": sum(1 for r in results if 7.0 <= r["cvss"] < 9.0),
-        "Medium": sum(1 for r in results if 4.0 <= r["cvss"] < 7.0),
-        "Low": sum(1 for r in results if r["cvss"] < 4.0)
+def get_risk_color(risk_level: str) -> str:
+    """Get color for risk level badge."""
+    color_map = {
+        "CRITICAL": "#dc2626",
+        "HIGH": "#ea580c",
+        "MEDIUM": "#ca8a04",
+        "LOW": "#16a34a"
     }
-    
-    # Create pie chart
-    fig = go.Figure(data=[go.Pie(
-        labels=list(risk_counts.keys()),
-        values=list(risk_counts.values()),
-        hole=0.4,
-        marker=dict(
-            colors=["#dc2626", "#ea580c", "#ca8a04", "#16a34a"]
-        )
-    )])
-    
-    fig.update_layout(
-        title="Risk Distribution",
-        showlegend=True,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=-0.2,
-            xanchor="center",
-            x=0.5
-        )
-    )
-    
-    st.plotly_chart(fig, use_container_width=True, key=f"risk_dist_{key}")
+    return color_map.get(risk_level, "#6b7280")
 
 
-def display_cvss_histogram(results: list[dict[str, Any]], key: str = "default") -> None:
-    """Display CVSS score histogram."""
-    if not results:
-        return
+async def perform_real_scan(target: str, port_range: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """
+    Perform real network scan using AsyncScanner and fetch CVEs.
     
-    cvss_scores = [r["cvss"] for r in results]
+    Args:
+        target: IP address or CIDR range
+        port_range: Port range to scan (e.g., "1-1000" or "22,80,443")
     
-    fig = px.histogram(
-        x=cvss_scores,
-        nbins=10,
-        labels={"x": "CVSS Score", "y": "Count"},
-        color_discrete_sequence=["#1f77b4"]
-    )
+    Returns:
+        tuple: (scan_results, cve_data)
+    """
+    # Step 1: Perform network scan
+    scanner = AsyncScanner(target)
+    scan_results = await scanner.scan(ports=port_range)
     
-    fig.update_layout(
-        title="CVSS Score Distribution",
-        showlegend=False,
-        bargap=0.1
-    )
+    # Step 2: Fetch CVEs for each discovered service
+    all_cves = []
+    discovered_ports = scan_results.get("ports", [])
     
-    st.plotly_chart(fig, use_container_width=True, key=f"cvss_hist_{key}")
-
-
-def display_vulnerability_table(results: list[dict[str, Any]]) -> None:
-    """Display vulnerability results in an interactive table."""
-    if not results:
-        st.info("No vulnerabilities found.")
-        return
-    
-    # Create DataFrame
-    df = pd.DataFrame(results)
-    
-    # Reorder columns
-    df = df[["port", "service", "cve", "description", "cvss", "risk"]]
-    
-    # Add risk class for styling
-    def get_risk_class(risk):
-        if risk == "HIGH" and df.loc[df["risk"] == risk, "cvss"].max() >= 9.0:
-            return "Critical"
-        return risk
-    
-    df["risk_level"] = df.apply(lambda row: get_risk_class(row["risk"]), axis=1)
-    
-    # Display table with filtering
-    st.subheader("Vulnerability Details")
-    
-    # Filter by risk level
-    risk_filter = st.multiselect(
-        "Filter by Risk Level",
-        options=["Critical", "High", "Medium", "Low"],
-        default=["Critical", "High", "Medium", "Low"]
-    )
-    
-    filtered_df = df[df["risk_level"].isin(risk_filter)]
-    
-    # Display styled table
-    st.dataframe(
-        filtered_df,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "port": st.column_config.NumberColumn("Port", format="%d"),
-            "service": st.column_config.TextColumn("Service"),
-            "cve": st.column_config.TextColumn("CVE ID"),
-            "description": st.column_config.TextColumn("Description"),
-            "cvss": st.column_config.NumberColumn("CVSS", format="%.1f"),
-            "risk": st.column_config.TextColumn("Risk"),
-            "risk_level": st.column_config.TextColumn("Risk Level")
-        }
-    )
-    
-    # Show details for selected CVE
-    if not filtered_df.empty:
-        st.subheader("CVE Details")
-        selected_cve = st.selectbox(
-            "Select a CVE to view details",
-            options=filtered_df["cve"].unique()
-        )
+    for service_info in discovered_ports:
+        product = service_info.get("product", "").strip()
+        version = service_info.get("version", "").strip()
         
-        if selected_cve:
-            cve_data = filtered_df[filtered_df["cve"] == selected_cve].iloc[0]
+        # Skip if no product information
+        if not product or product == "N/A":
+            continue
+        
+        # Skip if no version information
+        if not version or version == "N/A":
+            continue
+        
+        try:
+            # Fetch CVEs for this service
+            cves = await fetch_cves(service=product, version=version)
             
-            with st.expander(f"CVE Details: {selected_cve}", expanded=True):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.write(f"**Port:** {cve_data['port']}")
-                    st.write(f"**Service:** {cve_data['service']}")
-                    st.write(f"**CVSS Score:** {cve_data['cvss']}")
-                
-                with col2:
-                    st.write(f"**Risk Level:** {cve_data['risk']}")
-                    st.write(f"**Description:** {cve_data['description']}")
-
-
-def generate_report(results: list[dict[str, Any]], target: str) -> dict[str, Any]:
-    """Generate a JSON report of scan results."""
-    report = {
-        "scan_info": {
-            "target": target,
-            "timestamp": datetime.now().isoformat(),
-            "tool": "MergenSec",
-            "version": "1.0.0"
-        },
-        "summary": {
-            "total_vulnerabilities": len(results),
-            "critical_count": sum(1 for r in results if r["cvss"] >= 9.0),
-            "high_count": sum(1 for r in results if 7.0 <= r["cvss"] < 9.0),
-            "medium_count": sum(1 for r in results if 4.0 <= r["cvss"] < 7.0),
-            "low_count": sum(1 for r in results if r["cvss"] < 4.0),
-            "avg_cvss": sum(r["cvss"] for r in results) / len(results) if results else 0
-        },
-        "vulnerabilities": results
-    }
+            # Add service context to each CVE
+            for cve in cves:
+                cve["port"] = service_info["port"]
+                cve["service"] = service_info["service"]
+                cve["product"] = product
+                cve["version"] = version
+            
+            all_cves.extend(cves)
+            
+        except Exception as e:
+            # Log error but continue with other services
+            print(f"Error fetching CVEs for {product} {version}: {e}")
+            continue
     
-    return report
+    return scan_results, all_cves
 
 
-def save_report(report: dict[str, Any]) -> str:
-    """Save report to JSON file and return the path."""
-    reports_dir = "reports"
+def save_report_to_file(scan_results: dict, cve_data: list) -> str:
+    """
+    Save scan report to reports/ directory.
+    
+    Args:
+        scan_results: Scan results dictionary
+        cve_data: List of CVE data
+    
+    Returns:
+        str: Path to saved report file
+    """
+    # Create reports directory if it doesn't exist
+    reports_dir = os.path.join(os.path.dirname(__file__), "..", "reports")
+    reports_dir = os.path.abspath(reports_dir)
     os.makedirs(reports_dir, exist_ok=True)
     
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"report_{timestamp}.json"
+    # Generate filename with timestamp
+    filename = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     filepath = os.path.join(reports_dir, filename)
     
+    # Generate report content
+    report_json = generate_report_json(scan_results, cve_data)
+    
+    # Save to file
     with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(report, f, indent=2, ensure_ascii=False)
+        f.write(report_json)
     
     return filepath
 
 
-def main():
-    """Main dashboard application."""
-    # Header
-    st.markdown('<p class="main-header">🏹 MergenSec</p>', unsafe_allow_html=True)
-    st.markdown("**Autonomous Vulnerability Mapping Framework**")
-    st.markdown("---")
+def save_to_history(target: str, scan_results: dict, cve_data: list):
+    """
+    Save completed scan to session history.
     
-    # Sidebar - Scan Configuration
-    st.sidebar.header("Scan Configuration")
+    Args:
+        target: Target IP or CIDR range
+        scan_results: Scan results dictionary
+        cve_data: List of CVE data
+    """
+    history_entry = {
+        "target": target,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "timestamp_obj": datetime.now().isoformat(),
+        "scan_type": st.session_state.get("scan_type", "Standard"),
+        "cve_count": len(cve_data),
+        "critical_count": len([c for c in cve_data if c.get("severity") == "CRITICAL"]),
+        "results": scan_results,
+        "cve_data": cve_data
+    }
     
-    target = st.sidebar.text_input(
-        "Target IP or CIDR",
-        value="192.168.1.1",
-        help="Enter the target IP address or CIDR range to scan"
-    )
+    # Add to history (limit to last 10 scans)
+    if "scan_history" not in st.session_state:
+        st.session_state.scan_history = []
     
-    port_range = st.sidebar.text_input(
-        "Port Range",
-        value="21, 22, 80, 443, 3306, 8080",
-        help="Comma-separated list of ports to scan"
-    )
+    st.session_state.scan_history.append(history_entry)
     
-    scan_type = st.sidebar.selectbox(
-        "Scan Type",
-        options=["Quick Scan", "Full Scan", "Custom"],
-        index=0
-    )
-    
-    st.sidebar.markdown("---")
-    st.sidebar.header("Settings")
-    
-    auto_refresh = st.sidebar.checkbox(
-        "Auto-refresh results",
-        value=False
-    )
-    
-    show_advanced = st.sidebar.checkbox(
-        "Show advanced options",
-        value=False
-    )
-    
-    if show_advanced:
-        st.sidebar.text_input("NVD API Key", type="password")
-        st.sidebar.slider("Request timeout (seconds)", 10, 60, 30)
-    
-    # Main content area
-    tab1, tab2, tab3 = st.tabs(["Dashboard", "Scan Results", "Reports"])
-    
-    with tab1:
-        # Dashboard overview
-        st.header("Security Overview")
+    # Keep only last 10 scans
+    if len(st.session_state.scan_history) > 10:
+        st.session_state.scan_history = st.session_state.scan_history[-10:]
 
-        # Use real scan results if available, otherwise show sample data
-        if "scan_results" in st.session_state and st.session_state["scan_results"]:
-            dashboard_results = st.session_state["scan_results"]
-            st.info(f"Showing results from last scan on target: **{st.session_state.get('scan_target', 'N/A')}**")
-        else:
-            dashboard_results = load_sample_data()
-            st.caption("Showing sample data — run a scan in the 'Scan Results' tab to see real results.")
 
-        # Display metrics
-        display_metrics(dashboard_results)
+def generate_report_json(scan_results: dict, cve_data: list) -> str:
+    """Generate JSON report from scan and CVE data (SPRINT 3 - Day 14)."""
+    report = {
+        "metadata": {
+            "generated_at": datetime.now().isoformat(),
+            "tool": "MergenSec",
+            "version": "1.0.0"
+        },
+        "scan_info": {
+            "target": scan_results.get("host"),
+            "scan_time": scan_results.get("scan_time"),
+            "total_ports": len(scan_results.get("ports", []))
+        },
+        "vulnerabilities": cve_data,
+        "summary": {
+            "total_cves": len(cve_data),
+            "critical": len([c for c in cve_data if c.get("severity") == "CRITICAL"]),
+            "high": len([c for c in cve_data if c.get("severity") == "HIGH"]),
+            "medium": len([c for c in cve_data if c.get("severity") == "MEDIUM"]),
+            "low": len([c for c in cve_data if c.get("severity") == "LOW"]),
+        }
+    }
+    return json.dumps(report, indent=2)
 
-        # Display charts
-        col1, col2 = st.columns(2)
 
+# ============================================================================
+# SPRINT 1: BASIC HELLO WORLD PAGE (Days 1-2)
+# ============================================================================
+
+def render_header():
+    """Render main header (SPRINT 1 - Day 2)."""
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.markdown("<div class='main-header'>🏹 MergenSec</div>", unsafe_allow_html=True)
+        st.markdown("**Autonomous Vulnerability Mapping Framework**")
+        st.markdown("_Scan networks, detect services, and map CVE vulnerabilities automatically._")
+    with col2:
+        st.info("📊 **Dashboard Status**: Ready for Scanning")
+
+
+# ============================================================================
+# SPRINT 3: MAIN UI COMPONENTS (Days 11-17)
+# ============================================================================
+
+def render_input_form():
+    """Render IP input form and scan button (SPRINT 3 - Days 11-12)."""
+    st.subheader("🔍 Network Scan Configuration")
+
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        target = st.text_input(
+            "Target IP Address or CIDR Range",
+            placeholder="e.g., 192.168.1.1 or 192.168.1.0/24",
+            help="Enter a single IP or CIDR notation for range scanning"
+        )
+        # Custom port selection
+        custom_ports = st.text_input(
+            "Custom Ports (optional)",
+            value=st.session_state.get("custom_ports", ""),
+            placeholder="e.g., 22,80,443 or 1000-2000",
+            help="Comma-separated ports or ranges. Overrides scan type if filled."
+        )
+        st.session_state.custom_ports = custom_ports
+    with col2:
+        st.markdown("")  # Spacer
+        scan_button = st.button("🚀 Start Scan", use_container_width=True)
+
+    return target, scan_button
+
+
+def render_metric_cards(scan_results: dict, cve_data: list):
+    """Render metric cards (SPRINT 3 - Days 12-13)."""
+    col1, col2, col3, col4 = st.columns(4)
+    
+    total_ports = len(scan_results.get("ports", [])) if scan_results else 0
+    total_cves = len(cve_data) if cve_data else 0
+    max_cvss = max([c.get("cvss_score", 0) for c in cve_data], default=0) if cve_data else 0
+    
+    critical_count = len([c for c in cve_data if c.get("severity") == "CRITICAL"]) if cve_data else 0
+    
+    with col1:
+        st.metric(
+            label="Open Ports",
+            value=total_ports,
+            delta=None,
+            help="Number of discovered open ports"
+        )
+    
+    with col2:
+        st.metric(
+            label="Total CVEs",
+            value=total_cves,
+            delta=None,
+            help="Total vulnerabilities found"
+        )
+    
+    with col3:
+        st.metric(
+            label="Max CVSS Score",
+            value=f"{max_cvss:.1f}",
+            delta=None,
+            help="Highest CVSS score among all CVEs"
+        )
+    
+    with col4:
+        st.metric(
+            label="🔴 Critical",
+            value=critical_count,
+            delta=None,
+            help="Number of CRITICAL severity vulnerabilities"
+        )
+
+
+def render_risk_distribution_chart(cve_data: list):
+    """Render risk distribution pie chart (SPRINT 3 - Day 13)."""
+    st.subheader("📊 Risk Distribution")
+    
+    if not cve_data:
+        st.info("No vulnerability data to display")
+        return
+    
+    # Count by severity
+    severity_counts = {}
+    for cve in cve_data:
+        severity = cve.get("severity", "UNKNOWN")
+        severity_counts[severity] = severity_counts.get(severity, 0) + 1
+    
+    # Create pie chart
+    fig = go.Figure(data=[go.Pie(
+        labels=list(severity_counts.keys()),
+        values=list(severity_counts.values()),
+        marker=dict(
+            colors=["#dc2626", "#ea580c", "#ca8a04", "#16a34a", "#6b7280"],
+            line=dict(color="#fff", width=2)
+        ),
+        textposition="inside",
+        textinfo="label+percent"
+    )])
+    
+    fig.update_layout(
+        title="Vulnerability Severity Distribution",
+        height=400,
+        showlegend=True,
+        font=dict(size=12)
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def render_vulnerability_table(cve_data: list):
+    """Render filterable CVE vulnerability table (SPRINT 3 - Day 14)."""
+    st.subheader("📋 Vulnerability Details")
+    
+    if not cve_data:
+        st.info("No vulnerability data to display")
+        return
+    
+    # Create DataFrame
+    df = pd.DataFrame(cve_data)
+    
+    # Reorder columns
+    columns_to_display = [
+        "cve_id", "service", "product", "version",
+        "severity", "cvss_score", "description", "published"
+    ]
+    available_columns = [col for col in columns_to_display if col in df.columns]
+    df_display = df[available_columns].copy()
+    
+    # Rename columns for display
+    df_display.columns = ["CVE ID", "Service", "Product", "Version", "Severity", "CVSS", "Description", "Published"]
+    
+    # Display table with sorting and filtering
+    st.dataframe(
+        df_display.sort_values("CVSS", ascending=False),
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "CVSS": st.column_config.NumberColumn(format="%.1f"),
+            "CVE ID": st.column_config.TextColumn(width="medium"),
+            "Severity": st.column_config.TextColumn(width="small"),
+            "Description": st.column_config.TextColumn(width="large"),
+        }
+    )
+
+
+def render_report_download(scan_results: dict, cve_data: list):
+    """Render report download buttons (SPRINT 3/4 - Day 14)."""
+    st.subheader("💾 Export Report")
+    
+    col1, col2 = st.columns(2)
+    
+    if scan_results and cve_data:
+        # JSON Report
         with col1:
-            display_risk_distribution(dashboard_results, key="dashboard")
-
+            json_report = generate_report_json(scan_results, cve_data)
+            st.download_button(
+                label="📥 Download JSON Report",
+                data=json_report,
+                file_name=f"mergensec_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json"
+            )
+        
+        # CSV Report
         with col2:
-            display_cvss_histogram(dashboard_results, key="dashboard")
+            df = pd.DataFrame(cve_data)
+            csv_data = df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download CSV Report",
+                data=csv_data,
+                file_name=f"mergensec_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
+    else:
+        st.info("Run a scan first to generate reports")
 
-        # Recent scans section
-        st.markdown("---")
-        st.header("Recent Scans")
-        
-        if os.path.exists("reports"):
-            report_files = sorted(
-                [f for f in os.listdir("reports") if f.endswith(".json")],
-                reverse=True
-            )[:5]
-            
-            if report_files:
-                for report_file in report_files:
-                    report_path = os.path.join("reports", report_file)
-                    with open(report_path, "r") as f:
-                        report_data = json.load(f)
-                    
-                    with st.expander(f"Scan: {report_data['scan_info']['target']} - {report_data['scan_info']['timestamp'][:19]}"):
-                        st.write(f"**Target:** {report_data['scan_info']['target']}")
-                        st.write(f"**Total Vulnerabilities:** {report_data['summary']['total_vulnerabilities']}")
-                        st.write(f"**Critical:** {report_data['summary']['critical_count']}")
-                        st.write(f"**High:** {report_data['summary']['high_count']}")
-            else:
-                st.info("No previous scans found.")
+
+def render_sidebar_info():
+    """Render sidebar information and help (SPRINT 3)."""
+    with st.sidebar:
+        st.header("⚙️ Scan Configuration")
+
+        # Scan Type Selection
+        st.subheader("Scan Type")
+        scan_type = st.radio(
+            "Select scan type:",
+            ["Quick Scan (Top 20 ports)", "Standard Scan (1-1000 ports)", "Full Scan (All ports)"],
+            index=1,
+            help="Choose the scope of your port scan"
+        )
+
+        # Map selection to port range
+        scan_type_map = {
+            "Quick Scan (Top 20 ports)": "20,21,22,23,25,53,80,110,143,443,445,1433,1521,3306,3389,5432,5984,8080,8443,27017",
+            "Standard Scan (1-1000 ports)": "1-1000",
+            "Full Scan (All ports)": "1-65535"
+        }
+        # If custom_ports is entered, use it, otherwise set port_range according to scan_type
+        custom_ports = st.session_state.get("custom_ports", "")
+        if custom_ports.strip():
+            st.session_state.port_range = custom_ports.strip()
         else:
-            st.info("Reports directory not found.")
+            st.session_state.port_range = scan_type_map[scan_type]
+        st.session_state.scan_type = scan_type
+
+        st.divider()
+
+        # Additional Options
+        st.subheader("Options")
+        service_detection = st.checkbox("Service Detection (-sV)", value=True)
+        os_detection = st.checkbox("OS Detection (-O)", value=False)
+        aggressive_scan = st.checkbox("Aggressive Scan (-A)", value=False)
+
+        # Store options in session state
+        st.session_state.service_detection = service_detection
+        st.session_state.os_detection = os_detection
+        st.session_state.aggressive_scan = aggressive_scan
+
+        st.divider()
+
+        # Scan History
+        st.header("📜 Scan History")
+
+        if st.session_state.scan_history:
+            for idx, scan in enumerate(reversed(st.session_state.scan_history), 1):
+                with st.expander(f"Scan {idx}: {scan['target']} - {scan['timestamp']}"):
+                    st.write(f"**Target:** {scan['target']}")
+                    st.write(f"**Type:** {scan['scan_type']}")
+                    st.write(f"**Time:** {scan['timestamp']}")
+                    st.write(f"**CVEs Found:** {scan['cve_count']}")
+                    st.write(f"**Critical:** {scan['critical_count']}")
+
+                    # Option to load previous scan
+                    if st.button(f"Load Scan {idx}", key=f"load_scan_{idx}"):
+                        st.session_state.scan_results = scan['results']
+                        st.session_state.cve_data = scan['cve_data']
+                        st.session_state.scan_timestamp = datetime.fromisoformat(scan['timestamp_obj'])
+                        st.success("Previous scan loaded!")
+                        st.rerun()
+        else:
+            st.info("No scan history yet. Run a scan to see it here.")
+
+        st.divider()
+
+        # Help Section
+        with st.expander("📖 How to Use"):
+            st.markdown("""
+            1. **Select Scan Type**: Choose from Quick, Standard, or Full scan
+            2. **Configure Options**: Enable service/OS detection if needed
+            3. **Enter Target**: Provide an IP address or CIDR range
+            4. **Start Scan**: Click the scan button
+            5. **View Results**: Check metrics, charts, and vulnerability table
+            6. **Export Report**: Download JSON or CSV report
+            7. **View History**: Click on previous scans to reload them
+
+            **Examples:**
+            - Single IP: `192.168.1.1`
+            - CIDR Range: `192.168.1.0/24`
+            - Full Subnet: `10.0.0.0/8`
+            """)
+
+        with st.expander("⚠️ Risk Levels"):
+            st.markdown("""
+            - **🔴 CRITICAL**: CVSS 9.0–10.0
+            - **🟠 HIGH**: CVSS 7.0–8.9
+            - **🟡 MEDIUM**: CVSS 4.0–6.9
+            - **🟢 LOW**: CVSS 0.1–3.9
+            """)
+
+        st.divider()
+        st.caption("🏹 MergenSec v1.0 | Python 3.12+")
+
+
+# ============================================================================
+# SPRINT 4: ERROR HANDLING & INTEGRATION (Days 18+)
+# ============================================================================
+
+def handle_scan_execution(target: str):
+    """Execute scan with error handling and real module integration."""
+    # Validate input
+    if not target.strip():
+        st.error("❌ Error: Please enter a target IP or CIDR range")
+        return
     
-    with tab2:
-        # Scan results tab
-        st.header("Vulnerability Scan Results")
-        
-        # Start scan button
-        if st.button("Start Scan", type="primary"):
-            # Parse port range
-            try:
-                ports = [int(p.strip()) for p in port_range.split(",")]
-                
-                # Progress bar
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                # Simulate scan with progress
-                status_text.text("Initializing scan...")
-                time.sleep(0.5)
-                
-                results = []
-                for i, port in enumerate(ports):
-                    status_text.text(f"Scanning port {port}...")
-                    progress_bar.progress((i + 1) / len(ports))
-                    
-                    vuln = map_vulnerability(port)
-                    if vuln:
-                        results.append(vuln)
-                
-                status_text.text("Scan complete!")
-                time.sleep(0.5)
-                status_text.empty()
-                progress_bar.empty()
-                
-                # Store results in session state
-                st.session_state["scan_results"] = results
-                st.session_state["scan_target"] = target
-                
-                st.success(f"Scan completed! Found {len(results)} vulnerabilities.")
-                
-            except ValueError as e:
-                st.error(f"Invalid port range: {e}")
-        
-        # Display scan results
-        if "scan_results" in st.session_state:
-            results = st.session_state["scan_results"]
+    if not is_valid_target(target):
+        st.error(f"❌ Invalid Target: '{target}' is not a valid IP address or CIDR notation")
+        return
+    
+    # Get port range from session state
+    port_range = st.session_state.get("port_range", "1-1000")
+    
+    # Run scan with spinner
+    with st.spinner("🔄 Scanning network... This may take a few minutes."):
+        try:
+            # Run async scanner with real modules
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             
-            if results:
-                st.markdown("### Scan Results")
-                display_metrics(results)
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    display_risk_distribution(results, key="scan")
-                with col2:
-                    display_cvss_histogram(results, key="scan")
-                
-                display_vulnerability_table(results)
-                
-                # Export button
-                st.markdown("---")
-                report = generate_report(results, st.session_state["scan_target"])
-                report_path = save_report(report)
-                
-                st.success(f"Report saved to: {report_path}")
-                
-                # Download button
-                st.download_button(
-                    label="Download JSON Report",
-                    data=json.dumps(report, indent=2, ensure_ascii=False),
-                    file_name=os.path.basename(report_path),
-                    mime="application/json"
-                )
-            else:
-                st.info("No vulnerabilities found in the scan.")
-    
-    with tab3:
-        # Reports tab
-        st.header("Generated Reports")
-        
-        if os.path.exists("reports"):
-            report_files = sorted(
-                [f for f in os.listdir("reports") if f.endswith(".json")],
-                reverse=True
+            # Perform real scan
+            scan_results, cve_data = loop.run_until_complete(
+                perform_real_scan(target, port_range)
             )
             
-            if report_files:
-                for report_file in report_files:
-                    report_path = os.path.join("reports", report_file)
-                    with open(report_path, "r", encoding="utf-8") as f:
-                        report_data = json.load(f)
-                    
-                    with st.expander(f"📄 {report_file}"):
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.write(f"**Target:** {report_data['scan_info']['target']}")
-                            st.write(f"**Timestamp:** {report_data['scan_info']['timestamp']}")
-                            st.write(f"**Total:** {report_data['summary']['total_vulnerabilities']}")
-                        
-                        with col2:
-                            st.write(f"**Critical:** {report_data['summary']['critical_count']}")
-                            st.write(f"**High:** {report_data['summary']['high_count']}")
-                            st.write(f"**Medium:** {report_data['summary']['medium_count']}")
-                            st.write(f"**Low:** {report_data['summary']['low_count']}")
-                        
-                        st.markdown("---")
-                        
-                        # Download button for each report
-                        with open(report_path, "r", encoding="utf-8") as f:
-                            report_content = f.read()
-                        
-                        st.download_button(
-                            label="⬇️ Download JSON Report",
-                            data=report_content,
-                            file_name=report_file,
-                            mime="application/json",
-                            key=f"dl_{report_file}"
-                        )
-            else:
-                st.info("No reports found. Run a scan to generate reports.")
+            # Store results in session state
+            st.session_state.scan_results = scan_results
+            st.session_state.cve_data = cve_data
+            st.session_state.scan_timestamp = datetime.now()
+            
+            # Save report to file
+            try:
+                report_path = save_report_to_file(scan_results, cve_data)
+                st.success(f"✅ Scan Complete! Found {len(cve_data)} vulnerabilities")
+                st.info(f"📄 Report saved to: {os.path.basename(report_path)}")
+            except Exception as e:
+                st.warning(f"⚠️ Scan completed but failed to save report: {str(e)}")
+            
+            # Save to history
+            try:
+                save_to_history(target, scan_results, cve_data)
+            except Exception as e:
+                st.warning(f"⚠️ Failed to save to history: {str(e)}")
+            
+        except ImportError as e:
+            st.error(f"❌ Module Import Error: {str(e)}")
+            st.info("💡 Make sure all core modules are properly installed")
+        except RuntimeError as e:
+            st.error(f"❌ Scan Error: {str(e)}")
+            st.info("💡 Check if Nmap is installed and you have proper permissions")
+        except ConnectionError as e:
+            st.error(f"❌ Network Error: {str(e)}")
+            st.info("💡 Check your internet connection and NVD API key")
+        except Exception as e:
+            st.error(f"❌ Unexpected Error: {str(e)}")
+            with st.expander("Show Error Details"):
+                import traceback
+                st.code(traceback.format_exc())
+
+
+# ============================================================================
+# MAIN APP EXECUTION
+# ============================================================================
+
+def main():
+    """Main application entry point."""
+    initialize_session_state()
+    initialize_session_state()
+
+    # Header
+    render_header()
+    st.divider()
+
+    # Sidebar
+    render_sidebar_info()
+
+    # Tabs
+    tabs = st.tabs(["Network Scan", "Previous Reports"])
+
+    # 1. Tab: Network Scan
+    with tabs[0]:
+        target, scan_button = render_input_form()
+        if scan_button:
+            handle_scan_execution(target)
+        st.divider()
+        if st.session_state.scan_results and st.session_state.cve_data:
+            render_metric_cards(st.session_state.scan_results, st.session_state.cve_data)
+            st.divider()
+            render_risk_distribution_chart(st.session_state.cve_data)
+            st.divider()
+            render_vulnerability_table(st.session_state.cve_data)
+            st.divider()
+            render_report_download(st.session_state.scan_results, st.session_state.cve_data)
+            if st.session_state.scan_timestamp:
+                st.caption(
+                    f"Scan completed at: {st.session_state.scan_timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+                )
         else:
-            st.info("Reports directory not found.")
-    
-    # Footer
-    st.markdown("---")
-    st.markdown(
-        """
-        <div style='text-align: center; color: #666;'>
-            <p>🏹 MergenSec - Autonomous Vulnerability Mapping Framework</p>
-            <p>Built with Python, Streamlit, and Nmap</p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+            st.info("👆 Enter a target and click 'Start Scan' to begin vulnerability assessment")
+
+    # 2. Tab: Previous Reports
+    with tabs[1]:
+        st.subheader("🗂️ Previous Scan Reports")
+        reports_dir = os.path.join(os.path.dirname(__file__), "..", "reports")
+        reports_dir = os.path.abspath(reports_dir)
+        report_files = []
+        if os.path.exists(reports_dir):
+            report_files = [f for f in os.listdir(reports_dir) if f.endswith(".json")]
+            report_files.sort(reverse=True)
+        if report_files:
+            for rf in report_files:
+                report_path = os.path.join(reports_dir, rf)
+                with open(report_path, "r", encoding="utf-8") as f:
+                    try:
+                        report_data = json.load(f)
+                        target = report_data.get("scan_info", {}).get("target", "-")
+                        scan_time = report_data.get("scan_info", {}).get("scan_time", "-")
+                        total_ports = report_data.get("scan_info", {}).get("total_ports", "-")
+                        total_cves = report_data.get("summary", {}).get("total_cves", "-")
+                        critical = report_data.get("summary", {}).get("critical", "-")
+                    except Exception:
+                        target = scan_time = total_ports = total_cves = critical = "-"
+                with st.expander(f"{rf} | Target: {target} | Time: {scan_time}"):
+                    st.write(f"**Target:** {target}")
+                    st.write(f"**Scan Time:** {scan_time}")
+                    st.write(f"**Open Ports:** {total_ports}")
+                    st.write(f"**Total CVEs:** {total_cves}")
+                    st.write(f"**Critical:** {critical}")
+                    with open(report_path, "r", encoding="utf-8") as f2:
+                        st.download_button(
+                            label="Download JSON",
+                            data=f2.read(),
+                            file_name=rf,
+                            mime="application/json"
+                        )
+        else:
+            st.info("No previous reports found in the reports folder.")
 
 
 if __name__ == "__main__":
