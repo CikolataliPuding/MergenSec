@@ -33,7 +33,7 @@ class AsyncScanner:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None,
-                lambda: self._nm.scan(hosts=self.target, arguments="-sV"),
+                lambda: self._nm.scan(hosts=self.target, arguments="-sT -F --host-timeout 30s"),
             )
 
             hosts = self._nm.all_hosts()
