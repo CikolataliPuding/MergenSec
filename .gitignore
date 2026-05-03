@@ -1,4 +1,19 @@
+venv/
+.env
+# Generated reports
 reports/
+
+# Python cache
 __pycache__/
 *.pyc
-.env
+*.pyo
+
+# Database
+*.db
+
+# Pytest cache
+.pytest_cache/
+
+# Coverage
+.coverage
+htmlcov/

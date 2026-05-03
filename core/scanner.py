@@ -1,7 +1,7 @@
 """Async network scanner using python-nmap for service and version detection."""
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import nmap
@@ -40,7 +40,7 @@ class AsyncScanner:
             if not hosts:
                 return {
                     "host": self.target,
-                    "scan_time": datetime.now(datetime.UTC).isoformat(),
+                    "scan_time": datetime.now(timezone.utc).isoformat(),
                     "ports": [],
                 }
 
@@ -49,7 +49,7 @@ class AsyncScanner:
 
             return {
                 "host": host,
-                "scan_time": datetime.now(datetime.UTC).isoformat(),
+                "scan_time": datetime.now(timezone.utc).isoformat(),
                 "ports": ports,
             }
 
