@@ -42,7 +42,7 @@ def classify_risk(cvss):
         return "LOW"
 
 
-# Ana mapping fonksiyonu
+# Tek port için mapping
 def map_vulnerability(port):
     service = get_service(port)
 
@@ -60,3 +60,44 @@ def map_vulnerability(port):
         }
 
     return None
+
+
+# Çoklu port için mapping
+def map_vulnerabilities(ports):
+    results = []
+
+    for port in ports:
+        result = map_vulnerability(port)
+        if result:
+            results.append(result)
+
+    return results
+
+
+# -------------------------------
+# TEST + SCANNER ENTEGRASYONU
+# -------------------------------
+
+import asyncio
+from core.scanner import AsyncScanner
+
+
+async def main():
+    target = "scanme.nmap.org"
+
+    scanner = AsyncScanner(target)
+    scan_result = await scanner.scan()
+
+    print("SCAN SONUCU:")
+    print(scan_result)
+
+    ports = [p["port"] for p in scan_result["ports"]]
+
+    results = map_vulnerabilities(ports)
+
+    print("\nZAFİYETLER:")
+    print(results)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
