@@ -1,8 +1,7 @@
-
 venv/
 .env
 # Generated reports
-reports/*.json
+reports/
 
 # Python cache
 __pycache__/
@@ -18,7 +17,3 @@ __pycache__/
 # Coverage
 .coverage
 htmlcov/
-reports/
-__pycache__/
-*.pyc
-.env

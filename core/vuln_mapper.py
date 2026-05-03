@@ -87,26 +87,26 @@ class VulnMapper:
         )
 
     @staticmethod
-    def categorize_risk(score: float) -> str:
+    def categorize_risk(score: float | None) -> str:
         """Map a CVSS score to a human-readable risk category.
 
         Args:
-            score: CVSS v3 base score in the range 0.0–10.0.
+            score: CVSS v3 base score in the range 0.0–10.0, or None if unknown.
 
         Returns:
             One of 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW', or 'UNKNOWN' for invalid scores.
         """
-        if score is None:
+        if not isinstance(score, (int, float)) or pd.isna(score):
             return "UNKNOWN"
-        if 9.0 <= score <= 10.0:
+        if not 0.0 <= score <= 10.0:
+            return "UNKNOWN"
+        if score >= 9.0:
             return "CRITICAL"
-        if 7.0 <= score <= 8.9:
+        if score >= 7.0:
             return "HIGH"
-        if 4.0 <= score <= 6.9:
+        if score >= 4.0:
             return "MEDIUM"
-        if 0.1 <= score <= 3.9:
-            return "LOW"
-        return "UNKNOWN"
+        return "LOW"
 
     def to_json(self, path: str) -> None:
         """Serialize the mapped DataFrame to a JSON file.

@@ -111,7 +111,7 @@ async def _run_scan_async(target: str) -> list[dict[str, Any]]:
             "service": str(row.get("service", "")),
             "cve_id": str(row.get("cve_id", "")),
             "description": str(row.get("description", "")),
-            "cvss_score": float(score) if score is not None else 0.0,
+            "cvss_score": float(score) if pd.notna(score) else None,
             "severity": str(row.get("severity", "UNKNOWN")),
         })
     return output
@@ -140,10 +140,14 @@ def display_metrics(results: list[dict[str, Any]]) -> None:
         return
 
     total_vulns = len(results)
-    critical_count = sum(1 for r in results if r["cvss_score"] >= 9.0)
-    high_count     = sum(1 for r in results if 7.0 <= r["cvss_score"] < 9.0)
-    medium_count   = sum(1 for r in results if 4.0 <= r["cvss_score"] < 7.0)
-    valid_scores = [r["cvss_score"] for r in results if r.get("cvss_score") and not math.isnan(r["cvss_score"])]
+    critical_count = sum(1 for r in results if isinstance(r.get("cvss_score"), (int, float)) and r["cvss_score"] >= 9.0)
+    high_count     = sum(1 for r in results if isinstance(r.get("cvss_score"), (int, float)) and 7.0 <= r["cvss_score"] < 9.0)
+    medium_count   = sum(1 for r in results if isinstance(r.get("cvss_score"), (int, float)) and 4.0 <= r["cvss_score"] < 7.0)
+    valid_scores = [
+        r["cvss_score"]
+        for r in results
+        if isinstance(r.get("cvss_score"), (int, float)) and not math.isnan(r["cvss_score"])
+    ]
     avg_cvss = sum(valid_scores) / len(valid_scores) if valid_scores else 0.0
 
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -214,10 +218,10 @@ def display_risk_distribution(results: list[dict[str, Any]], key: str = "default
         return
 
     risk_counts = {
-        "Critical": sum(1 for r in results if r["cvss_score"] >= 9.0),
-        "High":     sum(1 for r in results if 7.0 <= r["cvss_score"] < 9.0),
-        "Medium":   sum(1 for r in results if 4.0 <= r["cvss_score"] < 7.0),
-        "Low":      sum(1 for r in results if r["cvss_score"] < 4.0),
+        "Critical": sum(1 for r in results if isinstance(r.get("cvss_score"), (int, float)) and r["cvss_score"] >= 9.0),
+        "High":     sum(1 for r in results if isinstance(r.get("cvss_score"), (int, float)) and 7.0 <= r["cvss_score"] < 9.0),
+        "Medium":   sum(1 for r in results if isinstance(r.get("cvss_score"), (int, float)) and 4.0 <= r["cvss_score"] < 7.0),
+        "Low":      sum(1 for r in results if isinstance(r.get("cvss_score"), (int, float)) and r["cvss_score"] < 4.0),
     }
 
     fig = go.Figure(data=[go.Pie(
@@ -429,6 +433,7 @@ def main() -> None:
                     results = run_scan(target)
                     st.session_state["scan_results"] = results
                     st.session_state["scan_target"] = target
+                    st.session_state["scan_report_saved"] = False
                     st.success(f"Scan completed! Found {len(results)} vulnerabilit{'y' if len(results) == 1 else 'ies'}.")
                 except Exception as exc:
                     st.error(f"Scan failed: {exc}")
@@ -449,9 +454,14 @@ def main() -> None:
 
                 st.markdown("---")
                 report = generate_report(results, st.session_state["scan_target"])
-                report_path = save_report(report)
-                st.success(f"Report saved to: {report_path}")
 
+                if not st.session_state.get("scan_report_saved", False):
+                    report_path = save_report(report)
+                    st.session_state["scan_report_saved"] = True
+                    st.session_state["scan_report_path"] = report_path
+                    st.success(f"Report saved to: {report_path}")
+
+                report_path = st.session_state.get("scan_report_path", "report.json")
                 st.download_button(
                     label="Download JSON Report",
                     data=json.dumps(report, indent=2, ensure_ascii=False),
