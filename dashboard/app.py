@@ -129,6 +129,11 @@ def run_scan(target: str) -> list[dict[str, Any]]:
     return asyncio.run(_run_scan_async(target))
 
 
+def _is_valid_cvss(score: Any) -> bool:
+    """Return True if score is a finite numeric CVSS value."""
+    return isinstance(score, (int, float)) and not math.isnan(score)
+
+
 def display_metrics(results: list[dict[str, Any]]) -> None:
     """Display key vulnerability metrics in a five-column card layout.
 
@@ -140,14 +145,10 @@ def display_metrics(results: list[dict[str, Any]]) -> None:
         return
 
     total_vulns = len(results)
-    critical_count = sum(1 for r in results if isinstance(r.get("cvss_score"), (int, float)) and r["cvss_score"] >= 9.0)
-    high_count     = sum(1 for r in results if isinstance(r.get("cvss_score"), (int, float)) and 7.0 <= r["cvss_score"] < 9.0)
-    medium_count   = sum(1 for r in results if isinstance(r.get("cvss_score"), (int, float)) and 4.0 <= r["cvss_score"] < 7.0)
-    valid_scores = [
-        r["cvss_score"]
-        for r in results
-        if isinstance(r.get("cvss_score"), (int, float)) and not math.isnan(r["cvss_score"])
-    ]
+    critical_count = sum(1 for r in results if _is_valid_cvss(r.get("cvss_score")) and r["cvss_score"] >= 9.0)
+    high_count     = sum(1 for r in results if _is_valid_cvss(r.get("cvss_score")) and 7.0 <= r["cvss_score"] < 9.0)
+    medium_count   = sum(1 for r in results if _is_valid_cvss(r.get("cvss_score")) and 4.0 <= r["cvss_score"] < 7.0)
+    valid_scores = [r["cvss_score"] for r in results if _is_valid_cvss(r.get("cvss_score"))]
     avg_cvss = sum(valid_scores) / len(valid_scores) if valid_scores else 0.0
 
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -218,10 +219,10 @@ def display_risk_distribution(results: list[dict[str, Any]], key: str = "default
         return
 
     risk_counts = {
-        "Critical": sum(1 for r in results if isinstance(r.get("cvss_score"), (int, float)) and r["cvss_score"] >= 9.0),
-        "High":     sum(1 for r in results if isinstance(r.get("cvss_score"), (int, float)) and 7.0 <= r["cvss_score"] < 9.0),
-        "Medium":   sum(1 for r in results if isinstance(r.get("cvss_score"), (int, float)) and 4.0 <= r["cvss_score"] < 7.0),
-        "Low":      sum(1 for r in results if isinstance(r.get("cvss_score"), (int, float)) and r["cvss_score"] < 4.0),
+        "Critical": sum(1 for r in results if _is_valid_cvss(r.get("cvss_score")) and r["cvss_score"] >= 9.0),
+        "High":     sum(1 for r in results if _is_valid_cvss(r.get("cvss_score")) and 7.0 <= r["cvss_score"] < 9.0),
+        "Medium":   sum(1 for r in results if _is_valid_cvss(r.get("cvss_score")) and 4.0 <= r["cvss_score"] < 7.0),
+        "Low":      sum(1 for r in results if _is_valid_cvss(r.get("cvss_score")) and r["cvss_score"] < 4.0),
     }
 
     fig = go.Figure(data=[go.Pie(
