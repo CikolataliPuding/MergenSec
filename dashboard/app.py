@@ -39,6 +39,80 @@ from core.cve_fetcher import fetch_cves
 # Load environment variables
 load_dotenv()
 
+DEMO_SCENARIOS = {
+    "🔴 Critical/High — Apache httpd 2.4.51": {
+        "service": "Apache httpd",
+        "version": "2.4.51",
+        "port": 80,
+        "fake_scan": {
+            "host": "192.168.1.105",
+            "scan_time": "2026-05-05 19:42:00",
+            "status": "success",
+            "ports": [
+                {"port": 80, "protocol": "tcp", "state": "open",
+                 "service": "http", "product": "Apache httpd", "version": "2.4.51"}
+            ]
+        }
+    },
+    "🟡 Medium — OpenSSH 7.9": {
+        "service": "OpenSSH",
+        "version": "7.9",
+        "port": 22,
+        "fake_scan": {
+            "host": "192.168.1.106",
+            "scan_time": "2026-05-05 19:45:00",
+            "status": "success",
+            "ports": [
+                {"port": 22, "protocol": "tcp", "state": "open",
+                 "service": "ssh", "product": "OpenSSH", "version": "7.9"}
+            ]
+        }
+    },
+    "🟢 Low/Clean — nginx 1.25.3": {
+        "service": "nginx",
+        "version": "1.25.3",
+        "port": 443,
+        "fake_scan": {
+            "host": "192.168.1.107",
+            "scan_time": "2026-05-05 19:48:00",
+            "status": "success",
+            "ports": [
+                {"port": 443, "protocol": "tcp", "state": "open",
+                 "service": "https", "product": "nginx", "version": "1.25.3"}
+            ]
+        }
+    },
+    "⚪ Unknown — No Version Info": {
+        "service": "",
+        "version": "",
+        "port": 445,
+        "fake_scan": {
+            "host": "192.168.1.108",
+            "scan_time": "2026-05-05 19:51:00",
+            "status": "success",
+            "ports": [
+                {"port": 445, "protocol": "tcp", "state": "open",
+                 "service": "microsoft-ds", "product": "N/A", "version": "N/A"}
+            ]
+        }
+    }
+}
+
+async def run_demo_scenario(scenario_key: str) -> tuple[dict, list]:
+    scenario = DEMO_SCENARIOS[scenario_key]
+    scan_results = scenario["fake_scan"]
+    service = scenario["service"]
+    version = scenario["version"]
+    if not service or not version:
+        return scan_results, []
+    cves = await fetch_cves(service=service, version=version)
+    for cve in cves:
+        cve["port"] = scenario["port"]
+        cve["service"] = scenario["fake_scan"]["ports"][0]["service"]
+        cve["product"] = service
+        cve["version"] = version
+    return scan_results, cves
+
 # Page configuration (SPRINT 1)
 st.set_page_config(
     page_title="🏹 MergenSec - Vulnerability Dashboard",
@@ -327,25 +401,41 @@ def render_header():
 def render_input_form():
     """Render IP input form and scan button (SPRINT 3 - Days 11-12)."""
     st.subheader("🔍 Network Scan Configuration")
+    st.session_state.demo_mode = st.toggle(
+        "Demo Mode",
+        value=st.session_state.get("demo_mode", False)
+    )
 
     col1, col2 = st.columns([3, 1])
-    with col1:
-        target = st.text_input(
-            "Target IP Address or CIDR Range",
-            placeholder="e.g., 192.168.1.1 or 192.168.1.0/24",
-            help="Enter a single IP or CIDR notation for range scanning"
-        )
-        # Custom port selection
-        custom_ports = st.text_input(
-            "Custom Ports (optional)",
-            value=st.session_state.get("custom_ports", ""),
-            placeholder="e.g., 22,80,443 or 1000-2000",
-            help="Comma-separated ports or ranges. Overrides scan type if filled."
-        )
-        st.session_state.custom_ports = custom_ports
-    with col2:
-        st.markdown("")  # Spacer
-        scan_button = st.button("🚀 Start Scan", use_container_width=True)
+    if st.session_state.demo_mode:
+        with col1:
+            st.session_state.demo_scenario = st.selectbox(
+                "Demo Scenario",
+                options=list(DEMO_SCENARIOS.keys()),
+                index=0
+            )
+            target = DEMO_SCENARIOS[st.session_state.demo_scenario]["fake_scan"]["host"]
+        with col2:
+            st.markdown("")  # Spacer
+            scan_button = st.button("🧪 Run Demo", use_container_width=True)
+    else:
+        with col1:
+            target = st.text_input(
+                "Target IP Address or CIDR Range",
+                placeholder="e.g., 192.168.1.1 or 192.168.1.0/24",
+                help="Enter a single IP or CIDR notation for range scanning"
+            )
+            # Custom port selection
+            custom_ports = st.text_input(
+                "Custom Ports (optional)",
+                value=st.session_state.get("custom_ports", ""),
+                placeholder="e.g., 22,80,443 or 1000-2000",
+                help="Comma-separated ports or ranges. Overrides scan type if filled."
+            )
+            st.session_state.custom_ports = custom_ports
+        with col2:
+            st.markdown("")  # Spacer
+            scan_button = st.button("🚀 Start Scan", use_container_width=True)
 
     return target, scan_button
 
@@ -356,7 +446,7 @@ def render_metric_cards(scan_results: dict, cve_data: list):
     
     total_ports = len(scan_results.get("ports", [])) if scan_results else 0
     total_cves = len(cve_data) if cve_data else 0
-    max_cvss = max([c.get("cvss_score", 0) for c in cve_data], default=0) if cve_data else 0
+    max_cvss = max([c.get("cvss_score") or 0 for c in cve_data], default=0) if cve_data else 0
     
     critical_count = len([c for c in cve_data if c.get("severity") == "CRITICAL"]) if cve_data else 0
     
@@ -680,7 +770,19 @@ def main():
     with tabs[0]:
         target, scan_button = render_input_form()
         if scan_button:
-            handle_scan_execution(target)
+            if st.session_state.demo_mode:
+                with st.spinner("🧪 Running demo scenario..."):
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    scan_results, cve_data = loop.run_until_complete(
+                        run_demo_scenario(st.session_state.demo_scenario)
+                    )
+                    st.session_state.scan_results = scan_results
+                    st.session_state.cve_data = cve_data
+                    st.session_state.scan_timestamp = datetime.now()
+                    st.success(f"✅ Demo Complete! Found {len(cve_data)} vulnerabilities")
+            else:
+                handle_scan_execution(target)
         st.divider()
         if st.session_state.scan_results and st.session_state.cve_data:
             render_metric_cards(st.session_state.scan_results, st.session_state.cve_data)
